@@ -11,7 +11,7 @@ const commandPatterns = [
 ] as const;
 type CompoundCommand = (typeof commandPatterns)[number][0];
 
-const ADVICE = 'The combined command failed and its output contains a Vitest summary reporting failed tests. ' +
+const ADVICE = 'The combined command failed and its output contains a Vitest summary reporting a failure. ' +
   'Run the test step separately to confirm its own exit status.';
 
 const MAX_OUTPUT = 128 * 1024;
@@ -116,7 +116,8 @@ function failureReport(lines: string[], start: number): { header: number; summar
 
   const failedFiles = failedCount(lines[files], 'Test Files');
   const failedTests = failedCount(lines[tests], 'Tests');
-  if (failedFiles === null || failedTests === null || failedFiles + failedTests === 0) return null;
+  // A suite hook can fail a file even when every individual test passed.
+  if (failedFiles === null || failedFiles === 0 || failedTests === null) return null;
   if (rows.length === 3) {
     const row = lines[errors].match(ERRORS);
     if (errors !== tests + 1 || !row) return null;
