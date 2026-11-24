@@ -17,6 +17,7 @@ describe('compound Bash failure advisories', () => {
   const buildThenTest = 'npm run build && npm test';
   const testThenLint = 'npm test && npm run lint';
   const directThenLint = 'npx vitest run && npm run lint';
+  const red = 'RUN v5.1.1\nTest Files  1 failed (1)\nTests  1 failed (1)';
   const advice = {
     level: 'advise',
     message: 'The combined command failed and its output contains a Vitest summary reporting failed tests. ' +
@@ -28,6 +29,7 @@ describe('compound Bash failure advisories', () => {
     [' \tnpm\t run\tbuild&&npm \ttest\t', `${build}\n${test}`],
     [testThenLint, test],
     [directThenLint, ''],
+    [directThenLint, test],
   ])('advises for literal command %j', (command, banners) => {
     expect(handlePostToolUseFailure('Bash', { command }, `Exit code 1\n${banners}${report}`,
       new SessionCache(), DEFAULT_CONFIG)).toEqual(advice);
@@ -72,6 +74,13 @@ describe('compound Bash failure advisories', () => {
     ['pretest banner', testThenLint, `> app@1.0.0 pretest\n> tsc\n${test}${report}`],
     ['posttest banner', testThenLint, `${test}${report}\n> app@1.0.0 posttest\n> echo done`],
     ['unexpected banner on direct run', directThenLint, `${build}${report}`],
+    ['short lint banner', directThenLint, `> lint\n> vitest run --config lint.config.ts\n\n${red}`],
+    ['short lint banner after npm test', testThenLint, `${test}${report}\n> lint\n> eslint .`],
+    ['earlier run and summary before wrapper', directThenLint,
+      `RUN v5.1.1\nTest Files  1 passed (1)\nTests  1 passed (1)\n${test}${red}`],
+    ['earlier RUN before wrapper', directThenLint, `RUN v5.1.1\n${test}${red}`],
+    ['earlier summary row before wrapper', directThenLint, `Tests  1 passed (1)\n${test}${red}`],
+    ['non-matching wrapper echo', directThenLint, `${test.replace('vitest run', 'vitest run --config lint.ts')}${red}`],
     ['red summary followed by lint', testThenLint, `${test}${report}\n${lint}`],
     ['red summary replayed by lint', directThenLint, `${lint}\n${report}`],
     ['run before the test section', testThenLint, `${run}\n${test}${summary}`],

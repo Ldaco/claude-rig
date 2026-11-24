@@ -58,11 +58,12 @@ describe('PostToolUse hook E2E', () => {
     const build = '> app@1.0.0 build\n> tsc\n';
     const test = '> app@1.0.0 test\n> vitest run\n';
     const lint = '> app@1.0.0 lint\n> tsc --noEmit\n';
-    const red = test + [
+    const directRed = [
       '', ' RUN  v5.0.1 /repo', '', ' ❯ tests/foo.test.ts (2 tests | 1 failed) 4ms', '   × adds 3ms',
       '', ' FAIL  tests/foo.test.ts > adds', 'AssertionError: expected 1 to be 2', '',
       ' Test Files  1 failed (1)', '      Tests  1 failed | 1 passed (2)',
     ].join('\n');
+    const red = test + directRed;
     const green = test + [
       '', ' RUN  v5.0.1 /repo', '', ' ✓ tests/foo.test.ts (2 tests) 4ms', '',
       ' Test Files  1 passed (1)', '      Tests  2 passed (2)',
@@ -82,7 +83,7 @@ describe('PostToolUse hook E2E', () => {
     it.each([
       ['F2', buildThenTest, `Exit code 1\n${build}\n${red}`],
       ['F4', testThenLint, `Exit code 1\n${red}`],
-      ['F7', directThenLint, `Exit code 1\n${red}`],
+      ['F7', directThenLint, `Exit code 1\n${directRed}`],
     ])('emits one compound advisory for %s', async (_id, command, error) => {
       const result = await runHook(hookPath, { ...failedTest, tool_input: { command }, error }, tempDir);
       expect(result).toMatchObject({ exitCode: 0, stdout: `${compoundAdvice}\n`, stderr: '' });
