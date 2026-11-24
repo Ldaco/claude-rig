@@ -48,15 +48,19 @@ const PACKAGE_BANNER = /^>[ \t]+((?:@[\w.-]+\/)?[\w.-]+@[\w.+-]+)(?=[ \t]|$)/;
 
 function testSectionStart(lines: string[], command: CompoundCommand): number | null {
   const banners: Array<{ pkg: string; script: string; echo: string; afterEcho: number }> = [];
-  // The shared output filter removes these lines, so inspect them first.
-  for (const [index, line] of lines.entries()) {
+  // Consume each lifecycle header and its command echo together. An unclaimed
+  // "> " line (including npm's versionless "> lint") makes attribution unclear.
+  for (let index = 0; index < lines.length; index++) {
+    const line = lines[index];
+    if (!/^>[ \t]+/.test(line)) continue;
     const banner = line.match(PACKAGE_BANNER);
-    if (!banner) continue;
+    if (!banner) return null;
     const script = line.slice(banner[0].length).match(/^[ \t]+(\S+)[ \t]*$/)?.[1];
     const next = lines[index + 1] ?? '';
     const echo = next.match(/^>[ \t]+([^ \t].*)$/)?.[1];
     if (!script || !echo || PACKAGE_BANNER.test(next)) return null;
     banners.push({ pkg: banner[1], script, echo, afterEcho: index + 2 });
+    index++; // The next line is the echo.
   }
 
   const [first, second] = banners;
@@ -65,10 +69,11 @@ function testSectionStart(lines: string[], command: CompoundCommand): number | n
       ? second.afterEcho : null;
   }
   if (command === 'vitest-lint' && banners.length === 0) return 1;
-  // Direct Vitest needs no npm banner. A transcript may still wrap the run
-  // in a test banner with the same literal Vitest echo (as in the F7 replay).
   if (banners.length !== 1 || first.script !== 'test') return null;
-  if (command === 'vitest-lint' && !/^vitest[ \t]+run[ \t]*$/.test(first.echo)) return null;
+  if (command === 'vitest-lint') {
+    if (!/^vitest[ \t]+run[ \t]*$/.test(first.echo)) return null;
+    if (lines.slice(1, first.afterEcho).some(line => RUN.test(line) || SUMMARY_ROW.test(line))) return null;
+  }
   return first.afterEcho;
 }
 
