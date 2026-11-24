@@ -58,7 +58,7 @@ import { execSync } from 'node:child_process';
     // Successful Bash calls carry output in tool_response. Failed calls carry it in error.
     const isFailure = input.hook_event_name === 'PostToolUseFailure';
     const result = isFailure
-      ? handlePostToolUseFailure(input.tool_name, input.tool_input ?? {}, input.error, cache, config)
+      ? handlePostToolUseFailure(input.tool_name, input.tool_input ?? {}, input.error, cache, config, input.is_interrupt)
       : handlePostToolUse(input.tool_name, input.tool_input, tracker, cache, config, execFn, input.tool_response);
 
     if (result) {

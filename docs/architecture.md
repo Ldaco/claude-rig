@@ -243,8 +243,10 @@ Claude Code sends failed Bash calls to `PostToolUseFailure`. The same script
 reads the payload's `error` field and checks single test commands for zero-defect
 violations. A failure without a named diagnostic reports the last five non-empty
 lines. The failure handler reads the cached phase and changed files without
-recording a tool use. Compound commands such as `npm test && npm run lint` are
-skipped because either step could have failed.
+recording a tool use. A few literal compounds such as `npm test && npm run lint`
+can give advice when their output contains a complete failing Vitest summary.
+Run build, test and lint as separate foreground Bash calls, starting the next
+only after the previous succeeds, so each result belongs to one command.
 
 A fourth check, `checkTestScope` (`src/enforcement/test-scope.ts`), runs in
 the **PreToolUse** hook rather than this pipeline: its output is a scoped-run

@@ -51,7 +51,7 @@ describe('compound Bash failure advisories', () => {
     ['scoped banners and colored CRLF', `${build}\n${test}${report}`.replaceAll('> app@', '> @scope/app@')
       .replace('1 failed', '\x1b[31m1 failed\x1b[0m').replaceAll('\n', '\r\n')],
     ['optional Errors row', `${build}\n${test}${report}\n     Errors  2 errors`],
-    ['skipped and todo counts', `${build}\n${test}${report.replace('1 passed (2)', '1 passed | 2 skipped | 3 todo (7)')}`],
+    ['all known counts', `${build}\n${test}${report.replace('1 passed (2)', '1 passed | 2 skipped | 3 todo | 1 expected fail (8)')}`],
     ['summary without a named diagnostic', `${build}\n${test}${run}\n${summary}`],
   ])('returns fixed advice for %s', (_name, output) => {
     const cache = new SessionCache();
@@ -89,12 +89,14 @@ describe('compound Bash failure advisories', () => {
     ['lone Tests row', testThenLint, `${test}${run}\nTests: 1 failed`],
     ['compiler code and ERROR', testThenLint, `${test}${run}\nERROR src/foo.ts\nerror TS2322`],
     ['visible truncation', testThenLint, `${test}${report}\n[123 characters truncated]`],
+    ['collapsed output', testThenLint, `${test}${report}\n… +16 lines (ctrl+o to expand)`],
+    ['persisted output', testThenLint, `${test}${report}\n<persisted-output>`],
     ['non-SGR ANSI sequence', testThenLint, `${test}${report}\n\x1b[2K`],
     ['bare carriage return', testThenLint, `${test}${report}\r`],
     ['C1 control', testThenLint, `${test}${report}\u0085`],
     ['over line count', testThenLint, `${test}${'\n'.repeat(2048)}${report}`],
     ['over raw line width', testThenLint, `${test}${report}\n${'\x1b[0m'.repeat(513)}`],
-    ['over total size', testThenLint, `${test}${report}\n${`${'🧪'.repeat(512)}\n`.repeat(128)}`],
+    ['over total size', testThenLint, `${test}${report}\n${('🧪'.repeat(512) + '\n').repeat(128)}`],
   ])('stays quiet for %s', (_name, command, output) => {
     expect(handlePostToolUseFailure('Bash', { command }, `Exit code 1\n${output}`,
       new SessionCache(), DEFAULT_CONFIG)).toBeNull();

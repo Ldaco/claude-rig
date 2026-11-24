@@ -6,6 +6,7 @@ import { checkStaleTests, staleSetKey } from './stale-test.js';
 import { checkConstitutional } from './constitutional.js';
 import { checkZeroDefect, clipDiagnostic, filterTestOutput, isNamedFailureLine } from './zero-defect.js';
 import { isSingleTestCommand } from './test-command.js';
+import { checkCompoundTestFailure } from './compound-test.js';
 import {
   incrementMetric,
   captureExternalGraphifyStats,
@@ -78,9 +79,12 @@ export function handlePostToolUseFailure(
   error: unknown,
   cache: SessionCache,
   config: HarnessConfig,
+  isInterrupt?: unknown,
 ): EnforcementViolation | null {
-  if (tool !== 'Bash' || typeof error !== 'string' ||
-      typeof args.command !== 'string' || !isSingleTestCommand(args.command)) return null;
+  if (tool !== 'Bash' || typeof error !== 'string' || typeof args.command !== 'string') return null;
+  if (!isSingleTestCommand(args.command)) {
+    return checkCompoundTestFailure(args.command, error, cache, config, isInterrupt);
+  }
 
   const changed = cache.getChangedFiles();
   const phase = cache.getCurrentPhase();
