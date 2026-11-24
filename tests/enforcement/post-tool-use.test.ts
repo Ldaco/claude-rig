@@ -105,14 +105,39 @@ describe('compound Bash failure advisories', () => {
     ['collapsed output', testThenLint, `${test}${report}\n… +16 lines (ctrl+o to expand)`],
     ['persisted output', testThenLint, `${test}${report}\n<persisted-output>`],
     ['non-SGR ANSI sequence', testThenLint, `${test}${report}\n\x1b[2K`],
-    ['bare carriage return', testThenLint, `${test}${report}\r`],
-    ['C1 control', testThenLint, `${test}${report}\u0085`],
+    ['bare carriage return', testThenLint, `${test}${report}\nlog\rrewritten`],
+    ['C1 control', testThenLint, `${test}${report}\nlog\u0085continued`],
     ['over line count', testThenLint, `${test}${'\n'.repeat(2048)}${report}`],
     ['over raw line width', testThenLint, `${test}${report}\n${'\x1b[0m'.repeat(513)}`],
     ['over total size', testThenLint, `${test}${report}\n${('🧪'.repeat(512) + '\n').repeat(128)}`],
   ])('stays quiet for %s', (_name, command, output) => {
     expect(handlePostToolUseFailure('Bash', { command }, `Exit code 1\n${output}`,
       new SessionCache(), DEFAULT_CONFIG)).toBeNull();
+  });
+
+  const prefix = `Exit code 1\n${red}\n`;
+  const padding = ('x'.repeat(2047) + '\n').repeat(64);
+  it.each([
+    ['2048 UTF-16 code units on a line', prefix + 'x'.repeat(2048), 'x'],
+    ['2048 physical lines', 'Exit code 1\n' + 'x\n'.repeat(2044) + red, '\nx'],
+    ['131072 UTF-16 code units in total', prefix + padding.slice(0, 131072 - prefix.length), 'x'],
+  ])('accepts %s and rejects one more', (_name, limit, extra) => {
+    const check = (error: string) => handlePostToolUseFailure('Bash', { command: directThenLint }, error,
+      new SessionCache(), DEFAULT_CONFIG);
+    expect(check(limit)).toEqual(advice);
+    expect(check(limit + extra)).toBeNull();
+  });
+
+  it('rejects two cap-length whitespace rows promptly', () => {
+    const error = `Exit code 1\n${test} RUN  v5.1.1 /repo\nTest Files${' '.repeat(2037)}x\nTests${' '.repeat(2042)}x`;
+    const start = performance.now();
+    expect(handlePostToolUseFailure('Bash', { command: testThenLint }, error, new SessionCache(), DEFAULT_CONFIG)).toBeNull();
+    expect(performance.now() - start).toBeLessThan(500);
+  });
+
+  it('stays quiet on an interrupted direct run', () => {
+    expect(handlePostToolUseFailure('Bash', { command: directThenLint }, `Exit code 1\n${red}`,
+      new SessionCache(), DEFAULT_CONFIG, true)).toBeNull();
   });
 
   it.each([undefined, 123, `${test}${report}`, `Exit code 0\n${test}${report}`, `Exit code -1\n${test}${report}`])(
