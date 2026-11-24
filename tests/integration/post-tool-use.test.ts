@@ -2,6 +2,7 @@ import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { mkdtempSync, rmSync, existsSync, readFileSync, writeFileSync, unlinkSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
+import { fileURLToPath } from 'node:url';
 import { initCommand } from '../../src/cli/init.js';
 import { runHook } from '../helpers/hook-runner.js';
 import { sessionCachePath } from '../../src/session/cache.js';
@@ -71,12 +72,44 @@ describe('PostToolUse hook E2E', () => {
       };
       const interrupted = await runHook(hookPath, { ...input, is_interrupt: true }, tempDir);
       expect(interrupted).toMatchObject({ exitCode: 0, stdout: '', stderr: '' });
-      expect(existsSync(sessionCachePath(tempDir, input.session_id))).toBe(false);
 
       const unflagged = await runHook(hookPath, { ...input, is_interrupt: undefined }, tempDir);
       expect(unflagged.exitCode).toBe(2);
       expect(unflagged.stderr).toContain('test command exited non-zero');
     }, HOOK_TIMEOUT);
+
+    describe('with a runtime predating interrupt support', () => {
+      let project: string;
+      let hook: string;
+
+      beforeAll(async () => {
+        project = join(tempDir, 'older-runtime-project');
+        const rigDistDir = fileURLToPath(new URL('./fixtures/pre-interrupt-runtime/', import.meta.url));
+        await initCommand(project, { force: false, rigDistDir });
+        hook = join(project, '.claude', 'hooks', 'scripts', 'post-tool-use.ts');
+      }, HOOK_TIMEOUT);
+
+      it('skips cache construction even when an interrupted Bash test printed a named failure', async () => {
+        const result = await runHook(hook, { ...failedTest, is_interrupt: true }, project);
+        expect(result).toMatchObject({ exitCode: 0, stdout: '', stderr: '' });
+      }, HOOK_TIMEOUT);
+
+      it.each([false, undefined, 'true', 1])('reports the named failure for is_interrupt=%j', async flag => {
+        const result = await runHook(hook, { ...failedTest, is_interrupt: flag }, project);
+        expect(result).toMatchObject({ exitCode: 2, stdout: '' });
+        expect(result.stderr).toContain('SessionCache constructed');
+        expect(result.stderr).toContain('FAIL tests/foo.test.ts');
+      }, HOOK_TIMEOUT);
+
+      it('continues to the cache for an interrupted Edit failure', async () => {
+        const result = await runHook(hook, {
+          ...failedTest, tool_name: 'Edit', tool_input: { file_path: 'src/foo.ts' },
+          error: 'Edit failed', is_interrupt: true,
+        }, project);
+        expect(result).toMatchObject({ exitCode: 0, stdout: '' });
+        expect(result.stderr.trim()).toBe('SessionCache constructed');
+      }, HOOK_TIMEOUT);
+    });
 
     it.each([
       ['Bash', { command: 'npm run build && npm test' }, 'ERROR src/build.ts'],
