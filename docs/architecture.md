@@ -239,8 +239,10 @@ invocations of the chain skills (`tdd-plus`, `sdd-plus`, etc.) set the current
 phase (`setPhase`). Hooks run as separate processes, so the session cache is
 the only channel that crosses invocations.
 
-Claude Code sends failed Bash calls to `PostToolUseFailure`. The same script
-reads the payload's `error` field and checks single test commands for zero-defect
+Claude Code sends failed Bash calls to `PostToolUseFailure`. A top-level
+`is_interrupt: true` makes the hook exit silently before reading the session
+cache, even if the test runner already printed a named failure. Otherwise the
+script reads the payload's `error` field and checks single test commands for zero-defect
 violations. A failure without a named diagnostic reports the last five non-empty
 lines. The failure handler reads the cached phase and changed files without
 recording a tool use. Compound commands such as `npm test && npm run lint` are

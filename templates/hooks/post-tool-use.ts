@@ -16,7 +16,6 @@ import { execSync } from 'node:child_process';
 (async () => {
   let handlePostToolUse: any;
   let handlePostToolUseFailure: any;
-  let isInterruptedBashFailure: (tool: unknown, isInterrupt: unknown) => boolean;
   let FileTracker: any;
   let SessionCache: any;
   let loadConfig: any;
@@ -25,7 +24,6 @@ import { execSync } from 'node:child_process';
     const enforcement = await import('{{RIG_DIST_PATH}}/enforcement/post-tool-use.js');
     handlePostToolUse = enforcement.handlePostToolUse;
     handlePostToolUseFailure = enforcement.handlePostToolUseFailure;
-    isInterruptedBashFailure = enforcement.isInterruptedBashFailure;
     const tracker = await import('{{RIG_DIST_PATH}}/enforcement/file-tracker.js');
     FileTracker = tracker.FileTracker;
     const cache = await import('{{RIG_DIST_PATH}}/session/cache.js');
@@ -49,7 +47,7 @@ import { execSync } from 'node:child_process';
   }
 
   const isFailure = input.hook_event_name === 'PostToolUseFailure';
-  if (isFailure && isInterruptedBashFailure(input.tool_name, input.is_interrupt)) return;
+  if (isFailure && input.tool_name === 'Bash' && input.is_interrupt === true) return;
 
   const cache = new SessionCache(cwd, input.session_id);
   const tracker = new FileTracker();

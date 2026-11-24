@@ -71,10 +71,6 @@ export function handlePostToolUse(
   );
 }
 
-export function isInterruptedBashFailure(tool: unknown, isInterrupt: unknown): boolean {
-  return tool === 'Bash' && isInterrupt === true;
-}
-
 /** A failed Bash call carries its output in error. Only read session state here. */
 export function handlePostToolUseFailure(
   tool: string,
