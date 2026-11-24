@@ -20,7 +20,7 @@ describe('compound Bash failure advisories', () => {
   const red = 'RUN v5.1.1\nTest Files  1 failed (1)\nTests  1 failed (1)';
   const advice = {
     level: 'advise',
-    message: 'The combined command failed and its output contains a Vitest summary reporting failed tests. ' +
+    message: 'The combined command failed and its output contains a Vitest summary reporting a failure. ' +
       'Run the test step separately to confirm its own exit status.',
   };
 
@@ -55,6 +55,7 @@ describe('compound Bash failure advisories', () => {
     ['optional Errors row', `${build}\n${test}${report}\n     Errors  2 errors`],
     ['all known counts', `${build}\n${test}${report.replace('1 passed (2)', '1 passed | 2 skipped | 3 todo | 1 expected fail (8)')}`],
     ['summary without a named diagnostic', `${build}\n${test}${run}\n${summary}`],
+    ['a file-level failure with passing tests', `${build}\n${test}RUN v5.1.1\nTest Files  1 failed (1)\nTests  1 passed (1)`],
   ])('returns fixed advice for %s', (_name, output) => {
     const cache = new SessionCache();
     cache.setPhase('verify+');
@@ -91,6 +92,7 @@ describe('compound Bash failure advisories', () => {
     ['stray Errors row', testThenLint, `${test}${report}\n\nErrors  1 error`],
     ['invalid Errors row', testThenLint, `${test}${report}\nErrors  2 error`],
     ['wrong total', testThenLint, `${test}${report.replace('1 passed (2)', '1 passed (3)')}`],
+    ['failed tests with zero failed files', directThenLint, red.replace('Test Files  1 failed', 'Test Files  1 passed')],
     ['unknown label', testThenLint, `${test}${report.replace('1 passed', '1 unsuccessful')}`],
     ['duplicate label', testThenLint, `${test}${report.replace('1 passed', '1 failed')}`],
     ['green summary with a FAIL line', testThenLint, `${test}${report.replaceAll('1 failed', '0 failed').replace('(1)', '(0)').replace('(2)', '(1)')}`],

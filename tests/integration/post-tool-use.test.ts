@@ -75,7 +75,7 @@ describe('PostToolUse hook E2E', () => {
     const compoundAdvice = JSON.stringify({
       hookSpecificOutput: {
         hookEventName: 'PostToolUseFailure',
-        additionalContext: 'The combined command failed and its output contains a Vitest summary reporting failed tests. ' +
+        additionalContext: 'The combined command failed and its output contains a Vitest summary reporting a failure. ' +
           'Run the test step separately to confirm its own exit status.',
       },
     });
