@@ -1,6 +1,6 @@
 import type { EnforcementViolation, HarnessConfig } from '../types.js';
 import type { SessionCache } from '../session/cache.js';
-import { classifyFailures, filterTestOutput } from './zero-defect.js';
+import { classifyFailures } from './zero-defect.js';
 
 // No shell parsing here. Only these literal tokens and horizontal whitespace
 // are allowed. The end assertion also rejects a final newline.
@@ -101,7 +101,7 @@ function failedCount(line: string, label: string): number | null {
   return Number.isSafeInteger(sum) && sum === Number(row[3]) ? failed : null;
 }
 
-function evidenceStart(lines: string[], start: number): number | null {
+function failureReport(lines: string[], start: number): { header: number; summary: number } | null {
   const headers: number[] = [];
   const rows: number[] = [];
   for (let index = start; index < lines.length; index++) {
@@ -122,7 +122,7 @@ function evidenceStart(lines: string[], start: number): number | null {
     const count = Number(row[1]);
     if (!Number.isSafeInteger(count) || count < 1 || row[2] !== (count === 1 ? 'error' : 'errors')) return null;
   }
-  return header;
+  return { header, summary: files };
 }
 
 export function checkCompoundTestFailure(
@@ -138,12 +138,19 @@ export function checkCompoundTestFailure(
   const lines = boundedLines(output);
   if (!lines || !/^Exit code \d*[1-9]\d*[ \t]*$/.test(lines[0] ?? '')) return null;
   const start = testSectionStart(lines, kind);
-  const header = start === null ? null : evidenceStart(lines, start);
-  if (header === null) return null;
+  if (start === null) return null;
+  const report = failureReport(lines, start);
+  if (!report) return null;
 
   if (config.rules.zero_defect?.unrelated_errors === 'silent') {
-    const { diagnostics } = filterTestOutput(lines.slice(header).join('\n'), 'failure');
-    const named = diagnostics.filter(line => /^FAIL[ \t]+(?=\S*[./\\])[^ \t>]+(?:[ \t]|$)/.test(line));
+    const named: string[] = [];
+    for (let index = start; index < report.summary; index++) {
+      const line = lines[index].trimStart();
+      // Vitest prints captured text verbatim, including blank lines. There
+      // is no reliable delimiter at which to resume trusting FAIL paths.
+      if (/^(?:stdout|stderr)[ \t]*\|/.test(line)) break;
+      if (index > report.header && /^FAIL[ \t]+(?=\S*[./\\])[^ \t>]+(?:[ \t]|$)/.test(line)) named.push(line);
+    }
     const { regressions } = classifyFailures(named.join('\n'), cache.getChangedFiles());
     if (regressions.length === 0) return null;
   }
