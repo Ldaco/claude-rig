@@ -63,6 +63,21 @@ describe('PostToolUse hook E2E', () => {
       expect(existsSync(sessionCachePath(tempDir, failedTest.session_id))).toBe(false);
     }, HOOK_TIMEOUT);
 
+    it('stays quiet for an explicitly interrupted npm test', async () => {
+      const input = {
+        ...failedTest,
+        tool_input: { command: 'npm test' },
+        error: 'Exit code 137\n RUN  v5.0.1 /repo',
+      };
+      const interrupted = await runHook(hookPath, { ...input, is_interrupt: true }, tempDir);
+      expect(interrupted).toMatchObject({ exitCode: 0, stdout: '', stderr: '' });
+      expect(existsSync(sessionCachePath(tempDir, input.session_id))).toBe(false);
+
+      const unflagged = await runHook(hookPath, { ...input, is_interrupt: undefined }, tempDir);
+      expect(unflagged.exitCode).toBe(2);
+      expect(unflagged.stderr).toContain('test command exited non-zero');
+    }, HOOK_TIMEOUT);
+
     it.each([
       ['Bash', { command: 'npm run build && npm test' }, 'ERROR src/build.ts'],
       ['Bash', { command: 'npm test && npm run lint' }, 'ERROR src/lint.ts'],
