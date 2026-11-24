@@ -14,6 +14,7 @@ type CompoundCommand = (typeof commandPatterns)[number][0];
 const ADVICE = 'The combined command failed and its output contains a Vitest summary reporting a failure. ' +
   'Run the test step separately to confirm its own exit status.';
 
+// String lengths (whole output and raw line width) are measured in UTF-16 code units.
 const MAX_OUTPUT = 128 * 1024;
 const MAX_LINES = 2048;
 const MAX_LINE = 2048;
@@ -81,7 +82,8 @@ function testSectionStart(lines: string[], command: CompoundCommand): number | n
 const RUN = /^[ \t]*RUN[ \t]+v/;
 const VITEST_HEADER = /^[ \t]*RUN[ \t]+v\d+\.\d+\.\d+(?:[-+][\w.+-]+)?(?:[ \t]|$)/;
 const SUMMARY_ROW = /^[ \t]*(?:Test Files|Tests|Errors)(?=[: \t]|$)/;
-const COUNTS = /^[ \t]*(Test Files|Tests)[ \t]+(.+?)[ \t]+\((\d+)\)[ \t]*$/;
+// Non-whitespace endpoints keep padding out of the counts capture.
+const COUNTS = /^[ \t]*(Test Files|Tests)[ \t]+(\S(?:.*\S)?)[ \t]+\((\d+)\)[ \t]*$/;
 const COUNT = /^[ \t]*(\d+)[ \t]+(failed|passed|skipped|todo|expected fail)[ \t]*$/;
 const ERRORS = /^[ \t]*Errors[ \t]+(\d+)[ \t]+(errors?)[ \t]*$/;
 
