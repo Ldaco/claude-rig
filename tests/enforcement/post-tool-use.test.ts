@@ -1,6 +1,12 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { resolve } from 'node:path';
-import { handlePostToolUse, handlePostToolUseFailure, isShellQuotablePath, SKILL_PHASE_MAP } from '../../src/enforcement/post-tool-use.js';
+import {
+  handlePostToolUse,
+  handlePostToolUseFailure,
+  isInterruptedBashFailure,
+  isShellQuotablePath,
+  SKILL_PHASE_MAP,
+} from '../../src/enforcement/post-tool-use.js';
 import { SkillPhaseTracker } from '../../src/skills/phase-tracker.js';
 import { FileTracker } from '../../src/enforcement/file-tracker.js';
 import { SessionCache } from '../../src/session/cache.js';
@@ -55,6 +61,19 @@ describe('standalone test result metadata', () => {
     expect(succeeded('cargo test', 'test result: ok. 1 passed; 0 failed; 0 ignored')).toBeNull();
     expect(succeeded('npm test', 'TAP version 13\n# FAIL src/fixture.ts\nok 1 - green\n# fail 0')).toBeNull();
     expect(succeeded('npx vitest run', '\x1b[31mFAIL\x1b[0m src/printed.ts\nTests: 1 passed')).toBeNull();
+  });
+});
+
+describe('isInterruptedBashFailure', () => {
+  it.each([
+    ['Bash', true, true],
+    ['Bash', false, false],
+    ['Bash', undefined, false],
+    ['Bash', 'true', false],
+    ['Bash', 1, false],
+    ['Edit', true, false],
+  ])('classifies %s with is_interrupt %j as interrupted=%s', (tool, flag, expected) => {
+    expect(isInterruptedBashFailure(tool, flag)).toBe(expected);
   });
 });
 

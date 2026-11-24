@@ -16,6 +16,7 @@ import { execSync } from 'node:child_process';
 (async () => {
   let handlePostToolUse: any;
   let handlePostToolUseFailure: any;
+  let isInterruptedBashFailure: (tool: unknown, isInterrupt: unknown) => boolean;
   let FileTracker: any;
   let SessionCache: any;
   let loadConfig: any;
@@ -24,6 +25,7 @@ import { execSync } from 'node:child_process';
     const enforcement = await import('{{RIG_DIST_PATH}}/enforcement/post-tool-use.js');
     handlePostToolUse = enforcement.handlePostToolUse;
     handlePostToolUseFailure = enforcement.handlePostToolUseFailure;
+    isInterruptedBashFailure = enforcement.isInterruptedBashFailure;
     const tracker = await import('{{RIG_DIST_PATH}}/enforcement/file-tracker.js');
     FileTracker = tracker.FileTracker;
     const cache = await import('{{RIG_DIST_PATH}}/session/cache.js');
@@ -46,6 +48,9 @@ import { execSync } from 'node:child_process';
     process.exit(0);
   }
 
+  const isFailure = input.hook_event_name === 'PostToolUseFailure';
+  if (isFailure && isInterruptedBashFailure(input.tool_name, input.is_interrupt)) return;
+
   const cache = new SessionCache(cwd, input.session_id);
   const tracker = new FileTracker();
 
@@ -56,7 +61,6 @@ import { execSync } from 'node:child_process';
 
   loadConfig(resolve(cwd, '.harness.yaml')).then((config: any) => {
     // Successful Bash calls carry output in tool_response. Failed calls carry it in error.
-    const isFailure = input.hook_event_name === 'PostToolUseFailure';
     const result = isFailure
       ? handlePostToolUseFailure(input.tool_name, input.tool_input ?? {}, input.error, cache, config)
       : handlePostToolUse(input.tool_name, input.tool_input, tracker, cache, config, execFn, input.tool_response);
