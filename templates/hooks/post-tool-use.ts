@@ -6,7 +6,7 @@
  * Generated: {{GENERATED_DATE}}
  *
  * Enforces stale test detection, constitutional rules, zero-defect.
- * Also registered for PostToolUseFailure, where only zero-defect runs.
+ * Failed Bash calls can trigger zero-defect checks or compound test advisories.
  * Config: .harness.yaml
  */
 import { resolve } from 'node:path';

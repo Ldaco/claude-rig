@@ -271,7 +271,9 @@ error. A fourth check, **test scope**, runs in the PreToolUse hook: during
 suggestion before it executes.
 
 A Bash command that exits non-zero reaches the same script through the
-`PostToolUseFailure` event. For that event only the zero-defect check runs.
+`PostToolUseFailure` event. Single test commands receive the zero-defect
+check. For supported build/test and test/lint chains, a failing Vitest
+summary can trigger an advisory to rerun the test step on its own.
 
 ### Session Start: Auto-indexing
 

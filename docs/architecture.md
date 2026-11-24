@@ -243,8 +243,16 @@ Claude Code sends failed Bash calls to `PostToolUseFailure`. The same script
 reads the payload's `error` field and checks single test commands for zero-defect
 violations. A failure without a named diagnostic reports the last five non-empty
 lines. The failure handler reads the cached phase and changed files without
-recording a tool use. A few literal compounds such as `npm test && npm run lint`
-can give advice when their output contains a complete failing Vitest summary.
+recording a tool use.
+
+The hook can emit a fixed advisory and exit 0 for three literal command chains,
+`npm run build && npm test`, `npm test && npm run lint`, and
+`npx vitest run && npm run lint`. The hook looks for one complete Vitest
+summary with a failed file. A file can fail in teardown even when every test
+passed. Under `unrelated_errors: silent`, a related failure path must appear
+between the run header and the summary, before any captured stdout or stderr.
+The parser checks at most 131,072 UTF-16 code units, 2,048 physical lines,
+and 2,048 UTF-16 code units per line.
 Run build, test and lint as separate foreground Bash calls, starting the next
 only after the previous succeeds, so each result belongs to one command.
 
