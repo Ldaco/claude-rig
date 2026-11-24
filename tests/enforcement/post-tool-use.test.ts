@@ -123,6 +123,20 @@ describe('compound Bash failure advisories', () => {
       new SessionCache(), DEFAULT_CONFIG)).toBeNull();
   });
 
+  it.each([
+    ['captured stdout', 'stdout | tests/other.test.ts > logs an example\nFAIL tests/changed.test.ts\n\n' +
+      'FAIL  tests/other.test.ts > ordinary failure\n', ''],
+    ['captured stderr after a blank line', 'stderr | tests/other.test.ts > logs an example\n\nFAIL tests/changed.test.ts\n', ''],
+    ['text after the summary', 'FAIL tests/other.test.ts\n', '\nFAIL tests/changed.test.ts'],
+  ])('ignores related paths in %s under the silent policy', (_name, diagnostics, tail) => {
+    const cache = new SessionCache();
+    cache.setChangedFiles(['src/changed.ts']);
+    const config = structuredClone(DEFAULT_CONFIG);
+    config.rules.zero_defect!.unrelated_errors = 'silent';
+    const output = 'Exit code 1\n' + red.replace('Test Files', diagnostics + 'Test Files') + tail;
+    expect(handlePostToolUseFailure('Bash', { command: directThenLint }, output, cache, config)).toBeNull();
+  });
+
   it('applies the silent unrelated policy to named failures in the test section', () => {
     const cache = new SessionCache();
     cache.setPhase('tdd+');
