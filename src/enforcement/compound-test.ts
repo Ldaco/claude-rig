@@ -21,7 +21,8 @@ const SGR = /\x1b\[[\d;:]*m/g;
 const CONTROL = /[\x00-\x08\x0a-\x1f\x7f-\x9f\u2028\u2029]/;
 const TRUNCATION_MARKERS = [
   /[[(<][^\])>]{0,80}\b(?:truncated|omitted)\b[^\])>]{0,80}[\])>]/i,
-  /(?:^|…|\.{3})[ \t]*(?:output[ \t]+|\+?[\d,]+[ \t]+(?:lines?|characters?|bytes?)[ \t]+)?(?:truncated\b|omitted\b|\(ctrl\+o)/i,
+  /(?:^|…|\.{3})[ \t]*(?:output[ \t]+|\+?[\d,]+[ \t]+(?:lines?|characters?|bytes?|tokens?)[ \t]+)?(?:truncated\b|omitted\b|\(ctrl\+o)/i,
+  /\boutput[ \t]+truncated[ \t]+to[ \t]+[\d,]+[ \t]+bytes?\b/i,
   /<\/?persisted-output(?:>|[ \t])/i,
 ];
 
