@@ -7,6 +7,126 @@ import { SessionCache } from '../../src/session/cache.js';
 import type { HarnessConfig } from '../../src/types.js';
 import { DEFAULT_CONFIG } from '../../src/config.js';
 
+describe('compound Bash failure advisories', () => {
+  const build = '> app@1.0.0 build\n> tsc\n';
+  const test = '> app@1.0.0 test\n> vitest run\n';
+  const lint = '> app@1.0.0 lint\n> tsc --noEmit';
+  const run = ' RUN  v5.0.1 /repo';
+  const summary = ' Test Files  1 failed (1)\n      Tests  1 failed | 1 passed (2)';
+  const report = `${run}\n\n FAIL  tests/foo.test.ts > [BLOCK]\n\n${summary}`;
+  const buildThenTest = 'npm run build && npm test';
+  const testThenLint = 'npm test && npm run lint';
+  const directThenLint = 'npx vitest run && npm run lint';
+  const advice = {
+    level: 'advise',
+    message: 'The combined command failed and its output contains a Vitest summary reporting failed tests. ' +
+      'Run the test step separately to confirm its own exit status.',
+  };
+
+  it.each([
+    [buildThenTest, `${build}\n${test}`],
+    [' \tnpm\t run\tbuild&&npm \ttest\t', `${build}\n${test}`],
+    [testThenLint, test],
+    [directThenLint, ''],
+  ])('advises for literal command %j', (command, banners) => {
+    expect(handlePostToolUseFailure('Bash', { command }, `Exit code 1\n${banners}${report}`,
+      new SessionCache(), DEFAULT_CONFIG)).toEqual(advice);
+  });
+
+  it.each([
+    'npm run build && npm test -- --bail', 'CI=1 npm run build && npm test',
+    'cd app && npm run build && npm test', 'npm run build && npm test | tail',
+    'npm run build && npm test 2>&1', 'npm run build && npm test > log',
+    'npm run "build" && npm test', 'npm run $(echo build) && npm test',
+    'npm run build &&\nnpm test', 'npm run build && npm test\n',
+    'npm run build && npm test && npm run lint', 'npm run build && npm test # comment',
+    'npm run build; npm test', 'npm run build || npm test', 'npm run build \u00a0&& npm test',
+  ])('stays quiet for unsupported command %j', command => {
+    expect(handlePostToolUseFailure('Bash', { command }, `Exit code 1\n${build}\n${test}${report}`,
+      new SessionCache(), DEFAULT_CONFIG)).toBeNull();
+  });
+
+  it.each([
+    ['replayed build and test section', `${build}\n${test}${report}`],
+    ['scoped banners and colored CRLF', `${build}\n${test}${report}`.replaceAll('> app@', '> @scope/app@')
+      .replace('1 failed', '\x1b[31m1 failed\x1b[0m').replaceAll('\n', '\r\n')],
+    ['optional Errors row', `${build}\n${test}${report}\n     Errors  2 errors`],
+    ['skipped and todo counts', `${build}\n${test}${report.replace('1 passed (2)', '1 passed | 2 skipped | 3 todo (7)')}`],
+    ['summary without a named diagnostic', `${build}\n${test}${run}\n${summary}`],
+  ])('returns fixed advice for %s', (_name, output) => {
+    const cache = new SessionCache();
+    cache.setPhase('verify+');
+    expect(handlePostToolUseFailure('Bash', { command: buildThenTest }, `Exit code 1\n${output}`,
+      cache, DEFAULT_CONFIG)).toEqual(advice);
+  });
+
+  it.each([
+    ['missing build banner', buildThenTest, `${test}${report}`],
+    ['wrong banner order', buildThenTest, `${test}${build}${report}`],
+    ['different package versions', buildThenTest, `${build}${test.replace('1.0.0', '2.0.0')}${report}`],
+    ['different package names', buildThenTest, `${build}${test.replace('app@', 'other@')}${report}`],
+    ['missing test banner', testThenLint, report],
+    ['missing echo', testThenLint, `> app@1.0.0 test\n${report}`],
+    ['non-adjacent echo', testThenLint, `${test.replace('\n', '\n\n')}${report}`],
+    ['repeated test banner', testThenLint, `${test}${test}${report}`],
+    ['pretest banner', testThenLint, `> app@1.0.0 pretest\n> tsc\n${test}${report}`],
+    ['posttest banner', testThenLint, `${test}${report}\n> app@1.0.0 posttest\n> echo done`],
+    ['unexpected banner on direct run', directThenLint, `${build}${report}`],
+    ['red summary followed by lint', testThenLint, `${test}${report}\n${lint}`],
+    ['red summary replayed by lint', directThenLint, `${lint}\n${report}`],
+    ['run before the test section', testThenLint, `${run}\n${test}${summary}`],
+    ['no run header', testThenLint, `${test}${summary}`],
+    ['another run', testThenLint, `${test}${run}\n${report}`],
+    ['another summary', testThenLint, `${test}${report}\n${summary}`],
+    ['non-adjacent rows', testThenLint, `${test}${report.replace('\n      Tests', '\n> echo\n      Tests')}`],
+    ['stray Errors row', testThenLint, `${test}${report}\n\nErrors  1 error`],
+    ['invalid Errors row', testThenLint, `${test}${report}\nErrors  2 error`],
+    ['wrong total', testThenLint, `${test}${report.replace('1 passed (2)', '1 passed (3)')}`],
+    ['unknown label', testThenLint, `${test}${report.replace('1 passed', '1 unsuccessful')}`],
+    ['duplicate label', testThenLint, `${test}${report.replace('1 passed', '1 failed')}`],
+    ['green summary with a FAIL line', testThenLint, `${test}${report.replaceAll('1 failed', '0 failed').replace('(1)', '(0)').replace('(2)', '(1)')}`],
+    ['bare FAIL line', testThenLint, `${test}${run}\nFAIL tests/foo.test.ts`],
+    ['lone Tests row', testThenLint, `${test}${run}\nTests: 1 failed`],
+    ['compiler code and ERROR', testThenLint, `${test}${run}\nERROR src/foo.ts\nerror TS2322`],
+    ['visible truncation', testThenLint, `${test}${report}\n[123 characters truncated]`],
+    ['non-SGR ANSI sequence', testThenLint, `${test}${report}\n\x1b[2K`],
+    ['bare carriage return', testThenLint, `${test}${report}\r`],
+    ['C1 control', testThenLint, `${test}${report}\u0085`],
+    ['over line count', testThenLint, `${test}${'\n'.repeat(2048)}${report}`],
+    ['over raw line width', testThenLint, `${test}${report}\n${'\x1b[0m'.repeat(513)}`],
+    ['over total size', testThenLint, `${test}${report}\n${`${'🧪'.repeat(512)}\n`.repeat(128)}`],
+  ])('stays quiet for %s', (_name, command, output) => {
+    expect(handlePostToolUseFailure('Bash', { command }, `Exit code 1\n${output}`,
+      new SessionCache(), DEFAULT_CONFIG)).toBeNull();
+  });
+
+  it.each([undefined, 123, `${test}${report}`, `Exit code 0\n${test}${report}`, `Exit code -1\n${test}${report}`])(
+    'stays quiet without a positive exit status on the first line (%j)', error => {
+      expect(handlePostToolUseFailure('Bash', { command: testThenLint }, error,
+        new SessionCache(), DEFAULT_CONFIG)).toBeNull();
+    },
+  );
+
+  it('stays quiet for a non-Bash tool', () => {
+    expect(handlePostToolUseFailure('PowerShell', { command: testThenLint }, `Exit code 1\n${test}${report}`,
+      new SessionCache(), DEFAULT_CONFIG)).toBeNull();
+  });
+
+  it('applies the silent unrelated policy to named failures in the test section', () => {
+    const cache = new SessionCache();
+    cache.setPhase('tdd+');
+    const config = structuredClone(DEFAULT_CONFIG);
+    config.rules.zero_defect!.unrelated_errors = 'silent';
+    config.rules.zero_defect!.tolerance = 'permissive';
+    const output = `Exit code 1\n${build}FAIL tests/changed.test.ts\n${test}${report}\n` +
+      'ERROR tests/changed.test.ts\n× quotes FAIL tests/changed.test.ts';
+    cache.setChangedFiles(['src/changed.ts']);
+    expect(handlePostToolUseFailure('Bash', { command: buildThenTest }, output, cache, config)).toBeNull();
+    cache.setChangedFiles(['src/foo.ts']);
+    expect(handlePostToolUseFailure('Bash', { command: buildThenTest }, output, cache, config)).toEqual(advice);
+  });
+});
+
 describe('standalone test result metadata', () => {
   const launchers = ['npm test', 'npx vitest run'];
   const metadata = [

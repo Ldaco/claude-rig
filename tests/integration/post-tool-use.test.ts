@@ -42,7 +42,7 @@ describe('PostToolUse hook E2E', () => {
     // (tempDir, SESSION_ID) — remove the exact paths so /tmp doesn't
     // accumulate fixtures. Never glob-delete: real sessions own sibling
     // cache files.
-    for (const path of [SESSION_ID, undefined, 'failed-tdd'].map(id => sessionCachePath(tempDir, id))) {
+    for (const path of [SESSION_ID, undefined, 'failed-tdd', 'failed-compound'].map(id => sessionCachePath(tempDir, id))) {
       if (existsSync(path)) unlinkSync(path);
     }
     rmSync(tempDir, { recursive: true, force: true });
@@ -54,6 +54,81 @@ describe('PostToolUse hook E2E', () => {
       tool_name: 'Bash', tool_input: { command: 'npx vitest run' },
       error: 'Exit code 1\nFAIL tests/foo.test.ts\nTests: 1 failed',
     };
+
+    const build = '> app@1.0.0 build\n> tsc\n';
+    const test = '> app@1.0.0 test\n> vitest run\n';
+    const lint = '> app@1.0.0 lint\n> tsc --noEmit\n';
+    const red = test + [
+      '', ' RUN  v5.0.1 /repo', '', ' ❯ tests/foo.test.ts (2 tests | 1 failed) 4ms', '   × adds 3ms',
+      '', ' FAIL  tests/foo.test.ts > adds', 'AssertionError: expected 1 to be 2', '',
+      ' Test Files  1 failed (1)', '      Tests  1 failed | 1 passed (2)',
+    ].join('\n');
+    const green = test + [
+      '', ' RUN  v5.0.1 /repo', '', ' ✓ tests/foo.test.ts (2 tests) 4ms', '',
+      ' Test Files  1 passed (1)', '      Tests  2 passed (2)',
+    ].join('\n');
+    const compilerError = "src/a.ts(3,5): error TS2322: Type 'string' is not assignable to type 'number'.";
+    const buildThenTest = 'npm run build && npm test';
+    const testThenLint = 'npm test && npm run lint';
+    const directThenLint = 'npx vitest run && npm run lint';
+    const compoundAdvice = JSON.stringify({
+      hookSpecificOutput: {
+        hookEventName: 'PostToolUseFailure',
+        additionalContext: 'The combined command failed and its output contains a Vitest summary reporting failed tests. ' +
+          'Run the test step separately to confirm its own exit status.',
+      },
+    });
+
+    it.each([
+      ['F2', buildThenTest, `Exit code 1\n${build}\n${red}`],
+      ['F4', testThenLint, `Exit code 1\n${red}`],
+      ['F7', directThenLint, `Exit code 1\n${red}`],
+    ])('emits one compound advisory for %s', async (_id, command, error) => {
+      const result = await runHook(hookPath, { ...failedTest, tool_input: { command }, error }, tempDir);
+      expect(result).toMatchObject({ exitCode: 0, stdout: `${compoundAdvice}\n`, stderr: '' });
+      expect(existsSync(sessionCachePath(tempDir, failedTest.session_id))).toBe(false);
+    }, HOOK_TIMEOUT);
+
+    it.each([
+      ['F1', buildThenTest, `Exit code 2\n${build}\n${compilerError}`],
+      ['F5', testThenLint, `Exit code 2\n${green}\n\n${lint}\n${compilerError}`],
+      ['a green test title quoting a compiler error', testThenLint,
+        `Exit code 1\n${green.replace('tests/foo.test.ts (2 tests)', 'tests/foo.test.ts > reports error TS2322')}`],
+    ])('stays quiet for %s', async (_name, command, error) => {
+      const result = await runHook(hookPath, { ...failedTest, tool_input: { command }, error }, tempDir);
+      expect(result).toMatchObject({ exitCode: 0, stdout: '', stderr: '' });
+    }, HOOK_TIMEOUT);
+
+    it('stays quiet for an interrupted compound', async () => {
+      const result = await runHook(hookPath, {
+        ...failedTest, is_interrupt: true, tool_input: { command: testThenLint }, error: `Exit code 1\n${red}`,
+      }, tempDir);
+      expect(result).toMatchObject({ exitCode: 0, stdout: '', stderr: '' });
+    }, HOOK_TIMEOUT);
+
+    it('stays quiet for a 1 MiB line', async () => {
+      const start = performance.now();
+      const result = await runHook(hookPath, {
+        ...failedTest, tool_input: { command: testThenLint }, error: `Exit code 1\n${red}\n${'x'.repeat(1024 * 1024)}`,
+      }, tempDir);
+      expect(result).toMatchObject({ exitCode: 0, stdout: '', stderr: '' });
+      expect(performance.now() - start).toBeLessThan(5_000);
+    }, HOOK_TIMEOUT);
+
+    it('preserves the session cache bytes when advising on a compound', async () => {
+      const session_id = 'failed-compound';
+      const skill = await runHook(hookPath, {
+        session_id, hook_event_name: 'PostToolUse', tool_name: 'Skill', tool_input: { skill: 'tdd-plus' },
+      }, tempDir);
+      expect(skill.exitCode).toBe(0);
+      const path = sessionCachePath(tempDir, session_id);
+      const before = readFileSync(path);
+      const result = await runHook(hookPath, {
+        ...failedTest, session_id, tool_input: { command: testThenLint }, error: `Exit code 1\n${red}`,
+      }, tempDir);
+      expect(result).toMatchObject({ exitCode: 0, stdout: `${compoundAdvice}\n`, stderr: '' });
+      expect(readFileSync(path)).toEqual(before);
+    }, HOOK_TIMEOUT);
 
     it.each(['npx vitest run', 'npm test'])('blocks a failed %s', async command => {
       const result = await runHook(hookPath, { ...failedTest, tool_input: { command } }, tempDir);
