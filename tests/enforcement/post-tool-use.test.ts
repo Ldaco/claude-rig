@@ -98,6 +98,8 @@ describe('compound Bash failure advisories', () => {
     ['lone Tests row', testThenLint, `${test}${run}\nTests: 1 failed`],
     ['compiler code and ERROR', testThenLint, `${test}${run}\nERROR src/foo.ts\nerror TS2322`],
     ['visible truncation', testThenLint, `${test}${report}\n[123 characters truncated]`],
+    ['token truncation marker', directThenLint, `${red}\n... 120 tokens truncated ...`],
+    ['output truncation warning', directThenLint, `${red}\nWarning: output truncated to 1024 bytes`],
     ['collapsed output', testThenLint, `${test}${report}\n… +16 lines (ctrl+o to expand)`],
     ['persisted output', testThenLint, `${test}${report}\n<persisted-output>`],
     ['non-SGR ANSI sequence', testThenLint, `${test}${report}\n\x1b[2K`],
