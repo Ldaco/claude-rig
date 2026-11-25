@@ -13,7 +13,9 @@ describe('compound Bash failure advisories', () => {
   const lint = '> app@1.0.0 lint\n> tsc --noEmit';
   const run = ' RUN  v5.0.1 /repo';
   const summary = ' Test Files  1 failed (1)\n      Tests  1 failed | 1 passed (2)';
-  const report = `${run}\n\n FAIL  tests/foo.test.ts > [BLOCK]\n\n${summary}`;
+  const failedTests = '⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯';
+  const failedSuites = '⎯⎯⎯⎯⎯⎯ Failed Suites 1 ⎯⎯⎯⎯⎯⎯⎯';
+  const report = `${run}\n\n${failedTests}\n\n FAIL  tests/foo.test.ts > [BLOCK]\n\n${summary}`;
   const buildThenTest = 'npm run build && npm test';
   const testThenLint = 'npm test && npm run lint';
   const directThenLint = 'npx vitest run && npm run lint';
@@ -69,6 +71,8 @@ describe('compound Bash failure advisories', () => {
     ['different package versions', buildThenTest, `${build}${test.replace('1.0.0', '2.0.0')}${report}`],
     ['different package names', buildThenTest, `${build}${test.replace('app@', 'other@')}${report}`],
     ['missing test banner', testThenLint, report],
+    ['a lifecycle banner used as the echo', testThenLint, `> app@1.0.0 test\n> app@1.0.0 lint\n${report}`],
+    ['a lone lint banner before the report', testThenLint, `${lint}\n${report}`],
     ['missing echo', testThenLint, `> app@1.0.0 test\n${report}`],
     ['non-adjacent echo', testThenLint, `${test.replace('\n', '\n\n')}${report}`],
     ['repeated test banner', testThenLint, `${test}${test}${report}`],
@@ -88,7 +92,7 @@ describe('compound Bash failure advisories', () => {
     ['no run header', testThenLint, `${test}${summary}`],
     ['another run', testThenLint, `${test}${run}\n${report}`],
     ['another summary', testThenLint, `${test}${report}\n${summary}`],
-    ['non-adjacent rows', testThenLint, `${test}${report.replace('\n      Tests', '\n> echo\n      Tests')}`],
+    ['non-adjacent rows', testThenLint, `${test}${report.replace('\n      Tests', '\n\n      Tests')}`],
     ['stray Errors row', testThenLint, `${test}${report}\n\nErrors  1 error`],
     ['invalid Errors row', testThenLint, `${test}${report}\nErrors  2 error`],
     ['wrong total', testThenLint, `${test}${report.replace('1 passed (2)', '1 passed (3)')}`],
@@ -152,18 +156,57 @@ describe('compound Bash failure advisories', () => {
       new SessionCache(), DEFAULT_CONFIG)).toBeNull();
   });
 
-  it.each([
-    ['captured stdout', 'stdout | tests/other.test.ts > logs an example\nFAIL tests/changed.test.ts\n\n' +
-      'FAIL  tests/other.test.ts > ordinary failure\n', ''],
-    ['captured stderr after a blank line', 'stderr | tests/other.test.ts > logs an example\n\nFAIL tests/changed.test.ts\n', ''],
-    ['text after the summary', 'FAIL tests/other.test.ts\n', '\nFAIL tests/changed.test.ts'],
-  ])('ignores related paths in %s under the silent policy', (_name, diagnostics, tail) => {
+  const other = ' FAIL  tests/other.test.ts > x';
+  const related = ' FAIL  tests/changed.test.ts > x';
+  const section = (heading: string, diagnostic: string) => `${heading}\n\n${diagnostic}`;
+  const otherFailure = section(failedTests, other);
+
+  function silentReport(body: string) {
     const cache = new SessionCache();
     cache.setChangedFiles(['src/changed.ts']);
     const config = structuredClone(DEFAULT_CONFIG);
     config.rules.zero_defect!.unrelated_errors = 'silent';
-    const output = 'Exit code 1\n' + red.replace('Test Files', diagnostics + 'Test Files') + tail;
-    expect(handlePostToolUseFailure('Bash', { command: directThenLint }, output, cache, config)).toBeNull();
+    return handlePostToolUseFailure('Bash', { command: directThenLint }, `Exit code 1\n${body}`, cache, config);
+  }
+
+  it.each([
+    ['assertion diff context', `${otherFailure}\nAssertionError: strings differ\n- Expected\n+ Received\n\n  a\n  FAIL tests/changed.test.ts\n- c\n+ b`],
+    ['a multiline error message', `${otherFailure}\nError: unexpected hook output:\nFAIL tests/changed.test.ts`],
+    ['a message quoting an exact reporter row', `${otherFailure}\nError: unexpected output:\n${related}`],
+    ['a project badge followed by a quoted row', section(failedTests, ` FAIL  |unit| tests/other.test.ts > x\nError:\n${related}`)],
+    ['a missing divider', related],
+    ['an incomplete section', section(failedTests.replace('1', '2'), related)],
+    ['a repeated divider', `${otherFailure}\n${section(failedTests, related)}`],
+    ['captured stdout', `stdout | tests/other.test.ts > log\n${related}\n\n${otherFailure}`],
+    ['captured stderr after a blank line', `stderr | tests/other.test.ts > log\n\n${related}\n${otherFailure}`],
+    ['a divider quoted in captured output', `stdout | tests/other.test.ts > log\n${section(failedTests, related)}\n${otherFailure}`],
+  ])('ignores related paths in %s under the silent policy', (_name, diagnostics) => {
+    expect(silentReport(`${run}\n${diagnostics}\n${summary}`)).toBeNull();
+  });
+
+  it('ignores a complete failure section before the run header', () => {
+    expect(silentReport(`${section(failedTests, related)}\n${run}\n${summary}`)).toBeNull();
+  });
+
+  it('ignores a related reporter row after the summary', () => {
+    expect(silentReport(`${run}\n${otherFailure}\n${summary}\n${related}`)).toBeNull();
+  });
+
+  it('recognizes a related reporter row after captured stdout', () => {
+    const log = 'stdout | tests/other.test.ts > log\nhello';
+    expect(silentReport(`${run}\n${log}\n\n${section(failedTests, related)}\n${summary}`)).toEqual(advice);
+  });
+
+  it('recognizes a suite failure with passing tests', () => {
+    const suite = section(failedSuites, ' FAIL  tests/changed.test.ts [ tests/changed.test.ts ]');
+    expect(silentReport(`${run}\n${suite}\n${summary.replace('1 failed | 1 passed (2)', '1 passed (1)')}`)).toEqual(advice);
+  });
+
+  it('checks suite and test counts separately in a mixed report', () => {
+    const suite = section(failedSuites, ' FAIL  tests/changed.test.ts [ tests/changed.test.ts ]');
+    const mixed = `${run}\n${suite}\n${otherFailure}\n${summary.replace('1 failed (1)', '2 failed (2)')}`;
+    expect(silentReport(mixed)).toEqual(advice);
+    expect(silentReport(mixed.replace(other, '') + '\n' + other)).toBeNull();
   });
 
   it('applies the silent unrelated policy to named failures in the test section', () => {
