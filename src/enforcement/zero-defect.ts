@@ -78,7 +78,7 @@ function sourceToTestPath(sourceFile: string): string {
 /**
  * Check if a failing test file is related to a changed source file.
  */
-function isRelatedToChangedFile(testFile: string, changedFiles: string[]): boolean {
+export function isRelatedToChangedFile(testFile: string, changedFiles: string[]): boolean {
   // Direct match: test file itself was changed
   if (changedFiles.includes(testFile)) return true;
 

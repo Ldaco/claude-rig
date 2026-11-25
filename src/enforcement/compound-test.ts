@@ -1,6 +1,6 @@
 import type { EnforcementViolation, HarnessConfig } from '../types.js';
 import type { SessionCache } from '../session/cache.js';
-import { classifyFailures } from './zero-defect.js';
+import { isRelatedToChangedFile } from './zero-defect.js';
 
 // No shell parsing here. Only these literal tokens and horizontal whitespace
 // are allowed. The end assertion also rejects a final newline.
@@ -31,7 +31,6 @@ function boundedLines(output: string): string[] | null {
   if (output.length > MAX_OUTPUT) return null;
   const lines = output.split('\n', MAX_LINES + 2);
   // A final line terminator does not add an empty physical line.
-  if (lines.length > MAX_LINES + 1) return null;
   if (lines.at(-1) === '') lines.pop();
   if (lines.length > MAX_LINES) return null;
 
@@ -104,7 +103,14 @@ function failedCount(line: string, label: string): number | null {
   return Number.isSafeInteger(sum) && sum === Number(row[3]) ? failed : null;
 }
 
-function failureReport(lines: string[], start: number): { header: number; summary: number } | null {
+interface FailureReport {
+  header: number;
+  summary: number;
+  failedFiles: number;
+  failedTests: number;
+}
+
+function failureReport(lines: string[], start: number): FailureReport | null {
   const headers: number[] = [];
   const rows: number[] = [];
   for (let index = start; index < lines.length; index++) {
@@ -126,7 +132,41 @@ function failureReport(lines: string[], start: number): { header: number; summar
     const count = Number(row[1]);
     if (!Number.isSafeInteger(count) || count < 1 || row[2] !== (count === 1 ? 'error' : 'errors')) return null;
   }
-  return { header, summary: files };
+  return { header, summary: files, failedFiles, failedTests };
+}
+
+const FAILURE_DIVIDER = /^⎯+ Failed (Tests|Suites) ([1-9]\d*) ⎯+$/;
+const TEST_DIAGNOSTIC = /^ FAIL {2}((?=\S*[./\\])[^\s>]+) > \S.*$/;
+const SUITE_DIAGNOSTIC = /^ FAIL {2}((?=\S*[./\\])[^\s>]+) \[ \1 \]$/;
+
+function relatedReporterFailure(lines: string[], report: FailureReport, changedFiles: string[]): boolean {
+  const paths = new Set<string>();
+  let section: string | undefined;
+  let remaining = 0;
+  for (let index = report.header + 1; index < report.summary; index++) {
+    const line = lines[index];
+    const divider = line.match(FAILURE_DIVIDER);
+    if (divider) {
+      // Vitest prints Suites, then Tests, each at most once. A second copy in
+      // a log or error body makes the boundaries ambiguous.
+      if (remaining !== 0 || section === 'Tests' || section === divider[1]) return false;
+      section = divider[1];
+      remaining = Number(divider[2]);
+      if (section === 'Tests' && remaining !== report.failedTests) return false;
+      if (lines[index + 1] !== '' || !lines[index + 2]?.startsWith(' FAIL  ')) return false;
+    } else if (section && line.startsWith(' FAIL ')) {
+      // Count every reporter-shaped row, including unfamiliar ones. Skipping
+      // an unknown path shape could let a quote take its place in the count.
+      const diagnostic = line.match(section === 'Tests' ? TEST_DIAGNOSTIC : SUITE_DIAGNOSTIC);
+      if (!diagnostic || remaining === 0) return false;
+      remaining--;
+      paths.add(diagnostic[1]);
+    } else if (section && /^(?:stdout|stderr)[ \t]*\|/.test(line.trimStart())) {
+      return false;
+    }
+  }
+  if (remaining !== 0 || (report.failedTests > 0 && section !== 'Tests') || paths.size !== report.failedFiles) return false;
+  return [...paths].some(path => isRelatedToChangedFile(path, changedFiles));
 }
 
 export function checkCompoundTestFailure(
@@ -146,18 +186,8 @@ export function checkCompoundTestFailure(
   const report = failureReport(lines, start);
   if (!report) return null;
 
-  if (config.rules.zero_defect?.unrelated_errors === 'silent') {
-    const named: string[] = [];
-    for (let index = start; index < report.summary; index++) {
-      const line = lines[index].trimStart();
-      // Vitest prints captured text verbatim, including blank lines. There
-      // is no reliable delimiter at which to resume trusting FAIL paths.
-      if (/^(?:stdout|stderr)[ \t]*\|/.test(line)) break;
-      if (index > report.header && /^FAIL[ \t]+(?=\S*[./\\])[^ \t>]+(?:[ \t]|$)/.test(line)) named.push(line);
-    }
-    const { regressions } = classifyFailures(named.join('\n'), cache.getChangedFiles());
-    if (regressions.length === 0) return null;
-  }
+  if (config.rules.zero_defect?.unrelated_errors === 'silent' &&
+      !relatedReporterFailure(lines, report, cache.getChangedFiles())) return null;
 
   // A preceding step can replay these bytes, so no setting can turn this
   // evidence into a block or put transcript text in the advisory.
