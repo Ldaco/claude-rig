@@ -122,6 +122,15 @@ describe('compound Bash failure advisories', () => {
       new SessionCache(), DEFAULT_CONFIG)).toBeNull();
   });
 
+  it.each([
+    '[output clipped]', '[snip]', '... (1500 more lines)', '... 300 more lines ...',
+    '--- 200 lines hidden ---', '<elided 4096 bytes>', 'note: the output was truncated',
+    'Output too large (45KB). Full output saved to: saved.log',
+  ])('stays quiet for truncation marker %s', marker => {
+    expect(handlePostToolUseFailure('Bash', { command: directThenLint }, `Exit code 1\n${red}\n${marker}`,
+      new SessionCache(), DEFAULT_CONFIG)).toBeNull();
+  });
+
   const prefix = `Exit code 1\n${red}\n`;
   const padding = ('x'.repeat(2047) + '\n').repeat(64);
   it.each([
