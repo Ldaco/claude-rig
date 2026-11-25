@@ -48,7 +48,7 @@ function boundedLines(output: string): string[] | null {
 const PACKAGE_BANNER = /^>[ \t]+((?:@[\w.-]+\/)?[\w.-]+@[\w.+-]+)(?=[ \t]|$)/;
 
 function testSectionStart(lines: string[], command: CompoundCommand): number | null {
-  const banners: Array<{ pkg: string; script: string; echo: string; afterEcho: number }> = [];
+  const banners: Array<{ pkg: string; script: string; echo: string; index: number }> = [];
   // Consume each lifecycle header and its command echo together. An unclaimed
   // "> " line (including npm's versionless "> lint") makes attribution unclear.
   for (let index = 0; index < lines.length; index++) {
@@ -60,22 +60,21 @@ function testSectionStart(lines: string[], command: CompoundCommand): number | n
     const next = lines[index + 1] ?? '';
     const echo = next.match(/^>[ \t]+([^ \t].*)$/)?.[1];
     if (!script || !echo || PACKAGE_BANNER.test(next)) return null;
-    banners.push({ pkg: banner[1], script, echo, afterEcho: index + 2 });
+    banners.push({ pkg: banner[1], script, echo, index });
     index++; // The next line is the echo.
   }
 
   const [first, second] = banners;
   if (command === 'build-test') {
     return banners.length === 2 && first.script === 'build' && second.script === 'test' && first.pkg === second.pkg
-      ? second.afterEcho : null;
+      ? second.index + 2 : null;
   }
   if (command === 'vitest-lint' && banners.length === 0) return 1;
   if (banners.length !== 1 || first.script !== 'test') return null;
-  if (command === 'vitest-lint') {
-    if (!/^vitest[ \t]+run[ \t]*$/.test(first.echo)) return null;
-    if (lines.slice(1, first.afterEcho).some(line => RUN.test(line) || SUMMARY_ROW.test(line))) return null;
-  }
-  return first.afterEcho;
+  if (command === 'vitest-lint' && !/^vitest[ \t]+run[ \t]*$/.test(first.echo)) return null;
+  // In either test-first chain the npm banner must be the first output.
+  if (lines.slice(1, first.index).some(line => /[^ \t]/.test(line))) return null;
+  return first.index + 2;
 }
 
 const RUN = /^[ \t]*RUN[ \t]+v/;
