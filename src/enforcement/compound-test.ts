@@ -24,6 +24,11 @@ const TRUNCATION_MARKERS = [
   /[[(<][^\])>]{0,80}\b(?:truncated|omitted)\b[^\])>]{0,80}[\])>]/i,
   /(?:^|…|\.{3})[ \t]*(?:output[ \t]+|\+?[\d,]+[ \t]+(?:lines?|characters?|bytes?|tokens?)[ \t]+)?(?:truncated\b|omitted\b|\(ctrl\+o)/i,
   /\boutput[ \t]+truncated[ \t]+to[ \t]+[\d,]+[ \t]+bytes?\b/i,
+  /\[(?:output[ \t]+clipped|snip)\]|<elided[ \t]+[\d,]+[ \t]+bytes?>/i,
+  /^(?:…|\.{3})[ \t]*\(?[\d,]+[ \t]+more[ \t]+lines?\b/i,
+  /^---[ \t]+[\d,]+[ \t]+lines?[ \t]+hidden[ \t]+---/i,
+  /\boutput[ \t]+was[ \t]+truncated\b/i,
+  /^output too large\b.*\bfull output saved to:/i,
   /<\/?persisted-output(?:>|[ \t])/i,
 ];
 
