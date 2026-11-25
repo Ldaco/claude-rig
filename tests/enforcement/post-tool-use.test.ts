@@ -7,6 +7,122 @@ import { SessionCache } from '../../src/session/cache.js';
 import type { HarnessConfig } from '../../src/types.js';
 import { DEFAULT_CONFIG } from '../../src/config.js';
 
+describe('compound Bash failure advisories', () => {
+  const bt = 'npm run build && npm test';
+  const tl = 'npm test && npm run lint';
+  const direct = 'npx vitest run && npm run lint';
+  const build = '> @scope/app@1.0.0 build\n> tsc\n';
+  const test = '> @scope/app@1.0.0 test\n> vitest run\n';
+  const run = ' RUN  v5.1.1 /repo\n';
+  const rows = ' Test Files  1 failed (1)\n      Tests  1 failed | 1 passed (2)';
+  const red = run + rows;
+  const advice = {
+    level: 'advise',
+    message: 'The combined command failed and its output contains a Vitest summary reporting a failure. ' +
+      'Run the test step separately to confirm its own exit status.',
+  };
+  const check = (command: string, body: string) =>
+    handlePostToolUseFailure('Bash', { command }, 'Exit code 1\n' + body, new SessionCache(), DEFAULT_CONFIG);
+
+  it('accepts the npm 11 unknown-config warning before the test banner', () => {
+    const warning = 'npm warn Unknown project config "totally-unknown-key". This will stop working in the next ' +
+      'major version of npm. See `npm help npmrc` for supported config options.\n\n';
+    expect(check(tl, warning + test + red)).toEqual(advice);
+  });
+
+  it('reads only the test section after a successful build', () => {
+    const command = ' \tnpm\t run build&&npm test\t';
+    expect(check(command, build + red + '\n' + test + red)).toEqual(advice);
+    expect(check(command, build + red + '\n' + test)).toBeNull();
+  });
+
+  it('accepts colored CRLF and a failed file with passing tests', () => {
+    const body = run + ' [BLOCK] in a title\n Test Files  \x1b[31m1 failed\x1b[0m (1)\n' +
+      ' Tests  1 passed | 2 skipped | 3 todo | 1 expected fail (7)\n Errors  2 errors\n';
+    expect(check(direct, body.replaceAll('\n', '\r\n'))).toEqual(advice);
+  });
+
+  it.each(['npm test && npm run lint --fix', 'npm test || npm run lint', 'cd app && npm test && npm run lint',
+    'npm test &&\nnpm run lint', 'npm test && npm run lint\n', 'npm test && npm run lint | tail',
+    'CI=1 npm test && npm run lint', 'npm test && npm run "lint"'])('ignores command %j', command => {
+    expect(check(command, test + red)).toBeNull();
+  });
+
+  it.each([
+    ['direct run with a wrapper', direct, test + red],
+    ['missing npm banner', tl, red],
+    ['missing build', bt, test + red],
+    ['reversed scripts', bt, test + build + red],
+    ['different package', bt, build + test.replace('@scope/app', 'other') + red],
+    ['pretest', tl, test.replace(' test\n', ' pretest\n') + test + red],
+    ['posttest', tl, test + red + '\n' + test.replace(' test\n', ' posttest\n')],
+    ['wrong script', tl, build + red],
+    ['repeated test', tl, test + test + red],
+    ['later lint after red', tl, test + red + '\n> @scope/app@1.0.0 lint\n> eslint .'],
+    ['unpaired echo', tl, test.replace('> vitest run', '>   ') + red],
+    ['banner as echo', tl, test.replace('> vitest run', '> app@1.0.0 lint') + red],
+    ['unversioned banner', direct, '> lint\n> eslint .\n' + red],
+  ])('rejects %s', (_name, command, output) => expect(check(command, output)).toBeNull());
+
+  it.each([
+    ['malformed version', red.replace('v5.1.1', 'vnext')],
+    ['second run', run + red],
+    ['header after counts', rows + '\n' + run],
+    ['second summary', red + '\n' + rows],
+    ['separated counts', red.replace('\n      Tests', '\nlog\nTests')],
+    ['swapped labels', red.replace('Test Files', 'Tests')],
+    ['wrong test label', red.replace('      Tests', ' Test Files')],
+    ['separated Errors row', red + '\nlog\nErrors  1 error'],
+    ['malformed Errors row', red + '\nErrors: found'],
+    ['extra summary row', red + '\nErrors  1 error\nErrors  1 error'],
+    ['wrong total', red.replace('(2)', '(3)')],
+    ['rounded total', red.replace('1 passed (2)', '9007199254740992 passed (9007199254740992)')],
+    ['unknown count', red.replace('1 passed', '1 pending')],
+    ['duplicate count', red.replace('1 passed', '1 failed')],
+    ['no failed file', red.replace('1 failed (1)', '1 passed (1)')],
+    ['zero failed files', red.replace('1 failed (1)', '0 failed (0)')],
+    ['bracketed marker', red + '\n[123 characters truncated]'],
+    ['token marker', red + '\n... 120 tokens truncated ...'],
+    ['byte marker', red + '\nWarning: output truncated to 1024 bytes'],
+    ['persisted output', red + '\n<persisted-output>'],
+    ['bare carriage return', red + '\r'],
+    ['cursor control', red + '\n\x1b[2K'],
+  ])('rejects %s', (_name, body) => expect(check(direct, body)).toBeNull());
+
+  it.each(['Exit code 0\n', 'log\nExit code 1\n', 'Exit code -1\n'])('rejects status %j', prefix => {
+    expect(handlePostToolUseFailure('Bash', { command: direct }, prefix + red, new SessionCache(), DEFAULT_CONFIG)).toBeNull();
+  });
+
+  const room = 128 * 1024 - 'Exit code 1\n'.length;
+  it.each([
+    ['line width', red + '\n' + 'x'.repeat(2048), 'x'],
+    ['physical lines', 'x\n'.repeat(2044) + red + '\n', 'x'],
+    ['total size', (red + '\n' + ('🧪'.repeat(512) + '\n').repeat(128)).slice(0, room), 'x'],
+  ])('accepts the %s limit and rejects one more', (_name, limit, extra) => {
+    expect(check(direct, limit)).toEqual(advice);
+    expect(check(direct, limit + extra)).toBeNull();
+  });
+
+  it('rejects two cap-length whitespace rows promptly', () => {
+    const start = performance.now();
+    expect(check(direct, run + 'Test Files' + ' '.repeat(2037) + 'x\nTests' + ' '.repeat(2042) + 'x')).toBeNull();
+    expect(performance.now() - start).toBeLessThan(500);
+  });
+
+  it('stays quiet under silent for related, unrelated and quoted paths', () => {
+    const config = structuredClone(DEFAULT_CONFIG);
+    config.rules.zero_defect!.unrelated_errors = 'silent';
+    const cache = new SessionCache();
+    cache.setChangedFiles(['tests/changed.test.js']);
+    for (const path of ['changed.test.js', 'other.test.js', 'changed.test.js > retired.test.js']) {
+      const diagnostic = '⎯⎯ Failed Tests 1 ⎯⎯\n\n FAIL  tests/' + path + ' > x\n';
+      const error = 'Exit code 1\n' + run + diagnostic + 'Error: quotes FAIL tests/changed.test.js\n' + rows;
+      expect(handlePostToolUseFailure('Bash', { command: direct }, error, cache, config)).toBeNull();
+    }
+  });
+});
+
+
 describe('standalone test result metadata', () => {
   const launchers = ['npm test', 'npx vitest run'];
   const metadata = [
