@@ -249,8 +249,11 @@ The hook can emit a fixed advisory and exit 0 for three literal command chains,
 `npm run build && npm test`, `npm test && npm run lint`, and
 `npx vitest run && npm run lint`. The hook looks for one complete Vitest
 summary with a failed file. A file can fail in teardown even when every test
-passed. Under `unrelated_errors: silent`, a related failure path must appear
-between the run header and the summary, before any captured stdout or stderr.
+passed. Under `unrelated_errors: silent`, a Vitest failure section must name
+a related path. Its diagnostic rows must match the section counts, and the
+reported paths and test counts must agree with the summary. Tests can log
+before those sections. A green summary with an unhandled rejection or an
+unclaimed `> ` line in an error message keeps the hook quiet.
 The parser checks at most 131,072 UTF-16 code units, 2,048 physical lines,
 and 2,048 UTF-16 code units per line.
 Run build, test and lint as separate foreground Bash calls, starting the next
